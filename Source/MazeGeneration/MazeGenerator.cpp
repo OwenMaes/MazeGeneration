@@ -8,14 +8,25 @@
 // Sets default values
 AMazeGenerator::AMazeGenerator()
 {
- 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
+	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
 
 }
 
 void AMazeGenerator::GenerateMaze()
 {
+	double Time = 0;
+	FDurationTimer DurationTimer = FDurationTimer(Time);
+	DurationTimer.Start();
+
 	CreateMazeGrid();
+	CarveMaze();
+
+	DurationTimer.Stop();
+	if (GEngine)
+		GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Blue, FString::SanitizeFloat(Time));
+
+	//Debugging
 	DrawDebugMazeGrid();
 }
 
@@ -23,14 +34,12 @@ void AMazeGenerator::GenerateMaze()
 void AMazeGenerator::BeginPlay()
 {
 	Super::BeginPlay();
-	
+
 }
 
 void AMazeGenerator::CreateMazeGrid()
 {
-	double Time = 0;
-	FDurationTimer DurationTimer = FDurationTimer(Time);
-	DurationTimer.Start();
+	
 
 	//Create Maze Nodes and its adjacent connections (walls)
 	TArray<FIntVector> MazeDirections = { { 1, 0, 0 }, { 0, 1, 0 }, { -1, 0, 0 }, { 0, -1, 0 } };
@@ -56,26 +65,73 @@ void AMazeGenerator::CreateMazeGrid()
 			{
 				adjacentCol = (col + dir.X);
 				adjacentRow = (row + dir.Y);
-				
+
 				//Check if the directions in the grid are valid
-				if (0 <= adjacentCol && adjacentCol < NrOfMazeColumns 
+				if (0 <= adjacentCol && adjacentCol < NrOfMazeColumns
 					&& 0 <= adjacentRow && adjacentRow < NrOfMazeRows)
 				{
 					adjacentNodeIdx = adjacentRow * NrOfMazeColumns + adjacentCol;
 					newMazeConnection.FromNodeID = newMazeNode.MazeNodeId;
 					newMazeConnection.ToNodeID = adjacentNodeIdx;
-					newMazeNode.Walls.Add(newMazeConnection);
+					newMazeNode.Connections.Add(newMazeConnection);
 				}
 			}
 
 			MazeNodeGrid.Add(newMazeNode.MazeNodeId, newMazeNode);
 		}
 	}
+}
 
+void AMazeGenerator::CarveMaze()
+{
+	//switch maze generating algorithm
+	TArray<FMazeNode*> nodePath{};
+	int startNodeIDx = 0;
+	if (auto startNode = MazeNodeGrid.Find(startNodeIDx))
+		DepthFirstSearch(startNode, nodePath);
+	
+}
 
-	DurationTimer.Stop();
-	if (GEngine)
-		GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Blue, FString::SanitizeFloat(Time));
+void AMazeGenerator::DepthFirstSearch(FMazeNode* node, TArray<FMazeNode*>& nodePath)
+{
+	//The node is marked visited
+	node->IsVisited = true;
+
+	//Shuffle the connection array
+	auto nrOfWalls = node->Connections.Num() - 1;
+	int swapIdx{};
+	for (auto i = 0; i < nrOfWalls; ++i) {
+		swapIdx = FMath::RandRange(i, nrOfWalls);
+		node->Connections.Swap(i, swapIdx);
+	}
+
+	//Choose a random wall that goes to a node not visited yet
+	for (auto i = 0; i < nrOfWalls; i++)
+	{
+		if (auto unvisitedNode = MazeNodeGrid.Find(node->Connections[i].ToNodeID))
+		{
+			if (unvisitedNode->IsVisited)
+				continue;
+
+			//Remove the wall of the connection
+			node->Connections[i].IsWall = false;
+
+			//Add current node to node path for backtracking
+			nodePath.Add(node);
+
+			//Go to unvisided node
+			DepthFirstSearch(unvisitedNode, nodePath);
+		}
+	}
+
+	//Check if back at start node
+	if (nodePath.Num() == 0)
+		return;
+
+	//Go back to node with unvisited connections
+	auto prevNode = nodePath.Pop();
+	DepthFirstSearch(prevNode, nodePath);
+
 }
 
 void AMazeGenerator::DrawDebugMazeGrid()
@@ -86,9 +142,21 @@ void AMazeGenerator::DrawDebugMazeGrid()
 	floorExtent.Y = MazeTileSize / 2 - thickness;
 	floorExtent.Z = 20.f;
 	//Draw debug nodes
-	for (auto& node: MazeNodeGrid)
+	for (auto& node : MazeNodeGrid)
 	{
-		DrawDebugBox(GetWorld(), node.Value.NodePosition, floorExtent, FColor::Green, true, 15.f, 0, thickness);
+		DrawDebugBox(GetWorld(), node.Value.NodePosition, floorExtent, FColor::Red, true, 15.f, 0, thickness);
+
+		for (auto conn : node.Value.Connections)
+		{
+			if (conn.IsWall) {
+				if (auto adjacentNode = MazeNodeGrid.Find(conn.ToNodeID))
+				{
+					FVector pos = node.Value.NodePosition + (adjacentNode->NodePosition - node.Value.NodePosition);
+					DrawDebugSphere(GetWorld(), pos, 50.f, 32, FColor::Blue, true, 15.f, 0, thickness);
+				}
+			}
+			
+		}
 	}
 }
 

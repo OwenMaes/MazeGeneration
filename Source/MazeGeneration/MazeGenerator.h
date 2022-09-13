@@ -13,10 +13,12 @@ struct FMazeNodeConnection
 
 	int FromNodeID;
 	int ToNodeID;
+	bool IsWall;
 
 	FMazeNodeConnection(int fromNodeID, int toNodeID)
 		:FromNodeID(fromNodeID)
 		,ToNodeID(toNodeID)
+		,IsWall(true)
 	{
 
 	}
@@ -24,6 +26,7 @@ struct FMazeNodeConnection
 	FMazeNodeConnection()
 		:FromNodeID(-1)
 		, ToNodeID(-1)
+		, IsWall(true)
 	{
 
 	}
@@ -37,16 +40,16 @@ struct FMazeNode
 	int MazeNodeId;
 	FVector NodePosition;
 	bool IsVisited;
-	TArray<FMazeNodeConnection> Walls;
-	TArray<FMazeNodeConnection> Openings;
+	TArray<FMazeNodeConnection> Connections;
+	TArray<FMazeConnection*> MazeConnections;
+
 
 	FMazeNode(int nodeID, FVector nodePosition)
 		:MazeNodeId(nodeID)
 		,NodePosition(nodePosition)
 		,IsVisited(false)
 	{
-		Walls = {};
-		Openings = {};
+		Connections = {};
 	}
 
 	FMazeNode()
@@ -54,8 +57,7 @@ struct FMazeNode
 		,NodePosition()
 		,IsVisited(false)
 	{
-		Walls = {};
-		Openings = {};
+		Connections = {};
 	}
 
 };
@@ -96,6 +98,8 @@ private:
 	TMap<int, FMazeNode> MazeNodeGrid = {};
 
 	void CreateMazeGrid();
+	void CarveMaze();
+	void DepthFirstSearch(FMazeNode* node, TArray<FMazeNode*>& nodePath);
 	void DrawDebugMazeGrid();
 public:	
 	// Called every frame
