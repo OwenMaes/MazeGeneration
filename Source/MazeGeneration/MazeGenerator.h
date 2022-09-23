@@ -6,11 +6,20 @@
 #include "GameFramework/Actor.h"
 #include "MazeGenerator.generated.h"
 
+UENUM(BlueprintType)
+enum class EMazeAlgorithm : uint8 {
+	RANDOMDEPTHFIRSTSEARCH = 0 UMETA(DisplayName = "Randomized Depth-First Search"),
+	RANDOMKRUSKALS = 1 UMETA(DisplayName = "Randomized Kruskal's"),
+	RANDOMPRISMS = 2 UMETA(DisplayName = "Randomized Prim's"),
+};
+
 USTRUCT()
 struct FMazeNodeConnection
 {
 	GENERATED_BODY()
 
+		FMazeNode* FromNode;
+		FMazeNode* ToNode;
 	int FromNodeID;
 	int ToNodeID;
 	bool IsWall;
@@ -19,6 +28,8 @@ struct FMazeNodeConnection
 		:FromNodeID(fromNodeID)
 		,ToNodeID(toNodeID)
 		,IsWall(true)
+		,FromNode(nullptr)
+		,ToNode(nullptr)
 	{
 
 	}
@@ -27,6 +38,8 @@ struct FMazeNodeConnection
 		:FromNodeID(-1)
 		, ToNodeID(-1)
 		, IsWall(true)
+		, FromNode(nullptr)
+		, ToNode(nullptr)
 	{
 
 	}
@@ -40,14 +53,14 @@ struct FMazeNode
 	int MazeNodeId;
 	FVector NodePosition;
 	bool IsVisited;
-	TArray<FMazeNodeConnection> Connections;
-	//TArray<FMazeConnection*> MazeConnections;
+	TArray<FMazeNodeConnection*> Connections;
 
 
 	FMazeNode(int nodeID, FVector nodePosition)
 		:MazeNodeId(nodeID)
 		,NodePosition(nodePosition)
 		,IsVisited(false)
+		,Connections()
 	{
 		Connections = {};
 	}
@@ -90,6 +103,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Maze settings")
 		float MazeTileSize = 600;
 
+	/*The algorithm used to carve the walls (generate maze).*/
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Maze settings")
+		EMazeAlgorithm MazeGenerationAlgorithm = EMazeAlgorithm::RANDOMDEPTHFIRSTSEARCH;
+
 	/*If debug is drawn.*/
 	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Maze settings")
 		bool DrawDebug = false;
@@ -106,14 +123,17 @@ protected:
 private:
 	TMap<int, FMazeNode> MazeNodeGrid = {};
 	TArray<FMazeNode*> MazeNodePath = {};
+	TArray<FMazeNode*> MazeNodeArray = {};
+	TArray<FMazeNodeConnection*> WallList = {};
+	TMap<int, TSet<int>> DividedMazeNodes = {};
 
-	void CreateMazeGrid();
-	void CarveMaze();
 	void ResetMazeNodes();
 	void ResetVisitedMazeNodes();
-	void RandomDepthFirstSearch(FMazeNode* node, TArray<FMazeNode*>& nodePath);
 	bool FindPathDepthFirstSearch(FMazeNode* startNode, FMazeNode* endNode, TArray<FMazeNode*>& nodePath);
 	void SpawnMeshes();
+	void SpawnOuterWalls(FTransform& floorTransform, FTransform& wallTransform, FRotator& wallRotation, FVector& wallDirection, FVector& wallPos);
+	void SpawnInnerWalls(FTransform& floorTransform, FTransform& wallTransform, FRotator& wallRotation, FVector& wallDirection, FVector& wallPos);
+	void SpawnFloors(FTransform& floorTransform);
 	void DrawDebugMazeGrid();
 	bool CheckIfMazeIsValid();
 public:	

@@ -2,9 +2,11 @@
 
 
 #include "MazeGenerator.h"
+#include "RandomDepthFirstSearch.h"
 #include <Runtime\Core\Public\ProfilingDebugging\ABTesting.h>
 #include <Runtime\Engine\Public\DrawDebugHelpers.h>
 #include <Runtime\Engine\Classes\Kismet\KismetMathLibrary.h>
+
 
 // Sets default values
 AMazeGenerator::AMazeGenerator()
@@ -28,21 +30,16 @@ void AMazeGenerator::GenerateMaze()
 	FDurationTimer DurationTimer = FDurationTimer(Time);
 	DurationTimer.Start();
 
-	CreateMazeGrid();
-	CarveMaze();
+	RandomDepthFirstSearch randomDFS(MazeStartPosition, NrOfMazeColumns, NrOfMazeRows, MazeTileSize, MazeNodeArray, WallList);
 
 	DurationTimer.Stop();
 	if (GEngine)
 		GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Blue, FString::SanitizeFloat(Time));
 
-	while (!CheckIfMazeIsValid())
-	{
-		ResetMazeNodes();
-		CarveMaze();
-	}
+	
 
-	//Debugging
-	if(DrawDebug)
+	////Debugging
+	if (DrawDebug)
 		DrawDebugMazeGrid();
 
 	//Spawn meshes
@@ -56,69 +53,14 @@ void AMazeGenerator::BeginPlay()
 
 }
 
-void AMazeGenerator::CreateMazeGrid()
-{
-	
-
-	//Create Maze Nodes and its adjacent connections (walls)
-	TArray<FIntVector> MazeDirections = { { 1, 0, 0 }, { 0, 1, 0 }, { -1, 0, 0 }, { 0, -1, 0 } };
-	FMazeNode newMazeNode{};
-	FMazeNodeConnection newMazeConnection{};
-	FVector position{};
-	int adjacentNodeIdx{}, adjacentRow{}, adjacentCol{};
-
-	for (size_t row = 0; row < NrOfMazeRows; row++)
-	{
-		for (size_t col = 0; col < NrOfMazeColumns; col++)
-		{
-			//Create Maze node
-			position = MazeStartPosition;
-			//todo match postion with unreal axis (-y)
-			position.X += MazeTileSize * col - MazeTileSize / 2;
-			position.Y -= MazeTileSize * row + MazeTileSize / 2;
-			newMazeNode.MazeNodeId = row * NrOfMazeColumns + col;
-			newMazeNode.NodePosition = position;
-
-			//Add connections (walls) in all valid directions
-			for (auto& dir : MazeDirections)
-			{
-				adjacentCol = (col + dir.X);
-				adjacentRow = (row + dir.Y);
-
-				//Check if the directions in the grid are valid
-				if (0 <= adjacentCol && adjacentCol < NrOfMazeColumns
-					&& 0 <= adjacentRow && adjacentRow < NrOfMazeRows)
-				{
-					adjacentNodeIdx = adjacentRow * NrOfMazeColumns + adjacentCol;
-					newMazeConnection.FromNodeID = newMazeNode.MazeNodeId;
-					newMazeConnection.ToNodeID = adjacentNodeIdx;
-					newMazeNode.Connections.Add(newMazeConnection);
-				}
-				
-			}
-			MazeNodeGrid.Add(newMazeNode.MazeNodeId, newMazeNode);
-			newMazeNode.Connections.Empty();
-		}
-	}
-}
-
-void AMazeGenerator::CarveMaze()
-{
-	//switch maze generating algorithm
-	int startNodeIDx = 0;
-	TArray<FMazeNode*> backtrackPath{};
-	if (auto startNode = MazeNodeGrid.Find(startNodeIDx))
-		RandomDepthFirstSearch(startNode, backtrackPath);
-}
-
 void AMazeGenerator::ResetMazeNodes()
 {
 	for (auto& node : MazeNodeGrid)
 	{
 		node.Value.IsVisited = false;
-		for (auto& con: node.Value.Connections)
+		for (auto& con : node.Value.Connections)
 		{
-			con.IsWall = true;
+			con->IsWall = true;
 		}
 	}
 }
@@ -132,57 +74,6 @@ void AMazeGenerator::ResetVisitedMazeNodes()
 	}
 }
 
-void AMazeGenerator::RandomDepthFirstSearch(FMazeNode* node, TArray<FMazeNode*>& nodePath)
-{
-	//The node is marked visited
-	node->IsVisited = true;
-
-	//Shuffle the connection array
-	auto nrOfWalls = node->Connections.Num() - 1;
-	int swapIdx{};
-	for (auto i = 0; i < nrOfWalls; ++i) {
-		swapIdx = FMath::RandRange(i, nrOfWalls);
-		node->Connections.Swap(i, swapIdx);
-	}
-
-	//Choose a random wall that goes to a node not visited yet
-	for (auto i = 0; i < nrOfWalls; i++)
-	{
-		if (auto unvisitedNode = MazeNodeGrid.Find(node->Connections[i].ToNodeID))
-		{
-			if (unvisitedNode->IsVisited)
-				continue;
-
-			//Remove the wall of the connection
-			node->Connections[i].IsWall = false;
-			if (auto adjacentNode = MazeNodeGrid.Find(node->Connections[i].ToNodeID)) {
-				for (auto& conn: adjacentNode->Connections)
-				{
-					if (conn.ToNodeID == node->Connections[i].FromNodeID)
-					{
-						conn.IsWall = false;
-						break;
-					}
-				}
-			}
-
-			//Add current node to node path for backtracking
-			nodePath.Add(node);
-	
-			//Go to unvisided node
-			RandomDepthFirstSearch(unvisitedNode, nodePath);
-		}
-	}
-
-	//Check if back at start node
-	if (nodePath.Num() == 0)
-		return;
-
-	//Go back to node with unvisited connections
-	auto prevNode = nodePath.Pop();
-	RandomDepthFirstSearch(prevNode, nodePath);
-
-}
 
 bool AMazeGenerator::FindPathDepthFirstSearch(FMazeNode* currentNode, FMazeNode* endNode, TArray<FMazeNode*>& nodePath)
 {
@@ -193,17 +84,17 @@ bool AMazeGenerator::FindPathDepthFirstSearch(FMazeNode* currentNode, FMazeNode*
 	if (currentNode->MazeNodeId == endNode->MazeNodeId) {
 		return true;
 	}
-		
+
 
 	//Choose a unvisited node that is closest to the end goal
 	float closestUnvisitedNodeDistanceSqrd = FLT_MAX;
 	float currentDistanceSqrd = {};
 	int nodeIDx = -1;
-	for (auto& con: currentNode->Connections)
+	for (auto& con : currentNode->Connections)
 	{
-		if (!con.IsWall)
+		if (!con->IsWall)
 		{
-			if (auto unvistedNode = MazeNodeGrid.Find(con.ToNodeID)) {
+			if (auto unvistedNode = MazeNodeGrid.Find(con->ToNodeID)) {
 				if (!unvistedNode->IsVisited) {
 					currentDistanceSqrd = FVector::DistSquared(unvistedNode->NodePosition, endNode->NodePosition);
 					if (currentDistanceSqrd < closestUnvisitedNodeDistanceSqrd)
@@ -244,29 +135,78 @@ void AMazeGenerator::SpawnMeshes()
 	FTransform wallTransform{};
 	FRotator wallRotation{};
 	FVector wallDirection{};
+	FVector wallPos{ 0,0,0 };
 
-	for (auto& node : MazeNodeGrid)
+	SpawnOuterWalls(floorTransform, wallTransform, wallRotation, wallDirection, wallPos);
+
+	SpawnFloors(floorTransform);
+
+	SpawnInnerWalls(floorTransform, wallTransform, wallRotation, wallDirection, wallPos);
+}
+
+void AMazeGenerator::SpawnOuterWalls(FTransform& floorTransform, FTransform& wallTransform, FRotator& wallRotation, FVector& wallDirection, FVector& wallPos)
+{
+	//outer walls along X-axis
+	wallRotation = UKismetMathLibrary::FindLookAtRotation({ 0,1,0 }, { 0,0,0 });
+	wallTransform.SetRotation(wallRotation.Quaternion());
+	for (size_t col = 0; col < NrOfMazeColumns; col++)
 	{
-		//Spawn floor
-		floorTransform.SetLocation(node.Value.NodePosition);
-		FloorTileISMC->AddInstanceWorldSpace(floorTransform);
+		wallPos.X = MazeStartPosition.X + col * MazeTileSize - MazeTileSize / 2;
+		//Walls on the BOTTOM
+		wallPos.Y = MazeStartPosition.Y;
+		wallTransform.SetLocation(wallPos);
+		WallTileISMC->AddInstanceWorldSpace(wallTransform);
+		//Walls on the TOP
+		wallPos.Y = MazeStartPosition.Y - NrOfMazeRows * MazeTileSize;
+		wallTransform.SetLocation(wallPos);
+		WallTileISMC->AddInstanceWorldSpace(wallTransform);
+	}
+	//outer walls along Y-axis
+	wallRotation = UKismetMathLibrary::FindLookAtRotation({ 1,0,0 }, { 0,0,0 });
+	wallTransform.SetRotation(wallRotation.Quaternion());
+	for (size_t row = 0; row < NrOfMazeRows; row++)
+	{
+		wallPos.Y = MazeStartPosition.Y - row * MazeTileSize - MazeTileSize / 2;
+		//Walls on the LEFT
+		wallPos.X = MazeStartPosition.X - MazeTileSize;
+		wallTransform.SetLocation(wallPos);
+		WallTileISMC->AddInstanceWorldSpace(wallTransform);
+		//Walls on the Right
+		wallPos.X = MazeStartPosition.X + MazeTileSize * NrOfMazeColumns - MazeTileSize;
+		wallTransform.SetLocation(wallPos);
+		WallTileISMC->AddInstanceWorldSpace(wallTransform);
+	}
+}
 
-		for (auto conn : node.Value.Connections)
-		{
-			if (conn.IsWall) {
-				if (auto adjacentNode = MazeNodeGrid.Find(conn.ToNodeID))
-				{
-					//Spawn wall
-					wallDirection = (adjacentNode->NodePosition - node.Value.NodePosition);
-					wallDirection.Normalize();
-					wallRotation = UKismetMathLibrary::FindLookAtRotation(wallDirection, { 0,0,0 });
-					wallTransform.SetRotation(wallRotation.Quaternion());
-					wallTransform.SetLocation(node.Value.NodePosition + wallDirection * (MazeTileSize / 2));
-					WallTileISMC->AddInstanceWorldSpace(wallTransform);
-				}
+void AMazeGenerator::SpawnInnerWalls(FTransform& floorTransform, FTransform& wallTransform, FRotator& wallRotation, FVector& wallDirection, FVector& wallPos)
+{
+	for (auto conn : WallList)
+	{
+		if (conn->IsWall) {
+			auto fromNode = conn->FromNode;
+			auto toNode = conn->ToNode;
+			if (fromNode && toNode)
+			{
+				//Spawn wall
+				wallDirection = (toNode->NodePosition - fromNode->NodePosition);
+				wallDirection.Normalize();
+				wallRotation = UKismetMathLibrary::FindLookAtRotation(wallDirection, { 0,0,0 });
+				wallTransform.SetRotation(wallRotation.Quaternion());
+				wallTransform.SetLocation(fromNode->NodePosition + wallDirection * (MazeTileSize / 2));
+				WallTileISMC->AddInstanceWorldSpace(wallTransform);
 			}
-
 		}
+
+
+	}
+}
+
+void AMazeGenerator::SpawnFloors(FTransform& floorTransform)
+{
+	for (auto node : MazeNodeArray)
+	{
+		floorTransform.SetLocation(node->NodePosition);
+		FloorTileISMC->AddInstanceWorldSpace(floorTransform);
 	}
 }
 
@@ -290,15 +230,15 @@ void AMazeGenerator::DrawDebugMazeGrid()
 					DrawDebugSphere(GetWorld(), pos, 50.f, 32, FColor::Blue, true, 15.f, 0, thickness);
 				}
 			}
-			
+
 		}*/
 	}
 
 	//Draw maze path
-	for (auto node: MazeNodePath)
+	/*for (auto node : MazeNodePath)
 	{
 		DrawDebugSphere(GetWorld(), node->NodePosition, 100.f, 10, FColor::Red, true, 5.f, 0, 15.f);
-	}
+	}*/
 }
 
 bool AMazeGenerator::CheckIfMazeIsValid()
