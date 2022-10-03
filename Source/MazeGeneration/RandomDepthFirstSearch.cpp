@@ -10,11 +10,25 @@ RandomDepthFirstSearch::RandomDepthFirstSearch(FVector mazeStartPosition, int nr
 	,NrOfMazeColumns(nrOfMazeColumns)
 	,NrOfMazeRows(nrOfMazeRows)
 	,MazeTileSize(MazeTileSize )
+	,ArrayOfNodes(arrayOfNodes)
+	,ArrayOfWalls(arrayOfWalls)
+{
+	
+}
+
+RandomDepthFirstSearch::~RandomDepthFirstSearch()
+{
+}
+
+void RandomDepthFirstSearch::DoWork()
 {
 	if (GEngine)
-		GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Green, TEXT("Generating maze with DFS"));
+		GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Green, TEXT("Generating maze with DFS..."));
 
-	CreateMazeGrid(arrayOfWalls);
+	ArrayOfNodes.Empty();
+	ArrayOfWalls.Empty();
+
+	CreateMazeGrid(ArrayOfWalls);
 	CarvePath();
 
 	//while (!CheckIfMazeIsValid())
@@ -22,13 +36,9 @@ RandomDepthFirstSearch::RandomDepthFirstSearch(FVector mazeStartPosition, int nr
 	//	ResetMazeNodes();
 	//	CarveMaze();
 	//}
-	
-	//Create array for OUT array parameter
-	MazeNodeGrid.GenerateValueArray(arrayOfNodes);
-}
 
-RandomDepthFirstSearch::~RandomDepthFirstSearch()
-{
+	//Create array for OUT array parameter
+	MazeNodeGrid.GenerateValueArray(ArrayOfNodes);
 }
 
 void RandomDepthFirstSearch::CreateMazeGrid(TArray<FMazeNodeConnection*>& arrayOfWalls)
@@ -93,7 +103,7 @@ void RandomDepthFirstSearch::RandomDFS(FMazeNode* node, TArray<FMazeNode*>& node
 	auto nrOfWalls = node->Connections.Num() - 1;
 	int swapIdx{};
 	for (auto i = 0; i < nrOfWalls; ++i) {
-		swapIdx = FMath::RandRange(i, nrOfWalls);
+		swapIdx = FMath::RandRange(i+1, nrOfWalls);
 		node->Connections.Swap(i, swapIdx);
 	}
 

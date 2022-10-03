@@ -13,23 +13,24 @@ enum class EMazeAlgorithm : uint8 {
 	RANDOMPRISMS = 2 UMETA(DisplayName = "Randomized Prim's"),
 };
 
+
 USTRUCT()
 struct FMazeNodeConnection
 {
 	GENERATED_BODY()
-
-		FMazeNode* FromNode;
-		FMazeNode* ToNode;
-	int FromNodeID;
+		int FromNodeID;
 	int ToNodeID;
+	FMazeNode* FromNode;
+	FMazeNode* ToNode;
+
 	bool IsWall;
 
 	FMazeNodeConnection(int fromNodeID, int toNodeID)
 		:FromNodeID(fromNodeID)
-		,ToNodeID(toNodeID)
-		,IsWall(true)
-		,FromNode(nullptr)
-		,ToNode(nullptr)
+		, ToNodeID(toNodeID)
+		, FromNode(nullptr)
+		, ToNode(nullptr)
+		, IsWall(true)
 	{
 
 	}
@@ -37,9 +38,9 @@ struct FMazeNodeConnection
 	FMazeNodeConnection()
 		:FromNodeID(-1)
 		, ToNodeID(-1)
-		, IsWall(true)
 		, FromNode(nullptr)
 		, ToNode(nullptr)
+		, IsWall(true)
 	{
 
 	}
@@ -50,7 +51,7 @@ struct FMazeNode
 {
 	GENERATED_BODY()
 
-	int MazeNodeId;
+		int MazeNodeId;
 	FVector NodePosition;
 	bool IsVisited;
 	TArray<FMazeNodeConnection*> Connections;
@@ -58,17 +59,17 @@ struct FMazeNode
 
 	FMazeNode(int nodeID, FVector nodePosition)
 		:MazeNodeId(nodeID)
-		,NodePosition(nodePosition)
-		,IsVisited(false)
-		,Connections()
+		, NodePosition(nodePosition)
+		, IsVisited(false)
+		, Connections()
 	{
 		Connections = {};
 	}
 
 	FMazeNode()
 		:MazeNodeId(-1)
-		,NodePosition()
-		,IsVisited(false)
+		, NodePosition()
+		, IsVisited(false)
 	{
 		Connections = {};
 	}
@@ -79,8 +80,8 @@ UCLASS()
 class MAZEGENERATION_API AMazeGenerator : public AActor
 {
 	GENERATED_BODY()
-	
-public:	
+
+public:
 	// Sets default values for this actor's properties
 	AMazeGenerator();
 
@@ -107,6 +108,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Maze settings")
 		EMazeAlgorithm MazeGenerationAlgorithm = EMazeAlgorithm::RANDOMDEPTHFIRSTSEARCH;
 
+	/*How long it takes to change the maze.*/
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Maze settings")
+		float MazeChangeTimer = 5.f;
+
 	/*If debug is drawn.*/
 	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Maze settings")
 		bool DrawDebug = false;
@@ -114,7 +119,9 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "Meshes")
 		UInstancedStaticMeshComponent* FloorTileISMC;
 	UPROPERTY(VisibleAnywhere, Category = "Meshes")
-		UInstancedStaticMeshComponent* WallTileISMC;
+		UInstancedStaticMeshComponent* InnerWallTileISMC;
+	UPROPERTY(VisibleAnywhere, Category = "Meshes")
+		UInstancedStaticMeshComponent* OuterWallTileISMC;
 
 protected:
 	// Called when the game starts or when spawned
@@ -122,21 +129,22 @@ protected:
 
 private:
 	TMap<int, FMazeNode> MazeNodeGrid = {};
+	TArray<FMazeNodeConnection*> WallList = {};
 	TArray<FMazeNode*> MazeNodePath = {};
 	TArray<FMazeNode*> MazeNodeArray = {};
-	TArray<FMazeNodeConnection*> WallList = {};
-	TMap<int, TSet<int>> DividedMazeNodes = {};
+	float ElapsedTimeUntilMazeChange = 0;
 
-	void ResetMazeNodes();
-	void ResetVisitedMazeNodes();
-	bool FindPathDepthFirstSearch(FMazeNode* startNode, FMazeNode* endNode, TArray<FMazeNode*>& nodePath);
-	void SpawnMeshes();
+	void SpawnMeshes(bool isSpawningFloors = true, bool isSpawningOuterWalls = true, bool IsSpawningInnerWalls = true);
 	void SpawnOuterWalls(FTransform& floorTransform, FTransform& wallTransform, FRotator& wallRotation, FVector& wallDirection, FVector& wallPos);
 	void SpawnInnerWalls(FTransform& floorTransform, FTransform& wallTransform, FRotator& wallRotation, FVector& wallDirection, FVector& wallPos);
 	void SpawnFloors(FTransform& floorTransform);
 	void DrawDebugMazeGrid();
-	bool CheckIfMazeIsValid();
-public:	
+
+	void GenerateDFSMazeAsync();
+	void GenerateDFSMaze();
+	void GenerateKruskalsMazeAsync();
+	void UpdateChangeMaze(float delta);
+public:
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 

@@ -3,6 +3,7 @@
 
 #include "MazeGenerator.h"
 #include "RandomDepthFirstSearch.h"
+#include "Private\RandomKruskals.h"
 #include <Runtime\Core\Public\ProfilingDebugging\ABTesting.h>
 #include <Runtime\Engine\Public\DrawDebugHelpers.h>
 #include <Runtime\Engine\Classes\Kismet\KismetMathLibrary.h>
@@ -12,15 +13,19 @@
 AMazeGenerator::AMazeGenerator()
 {
 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
-	PrimaryActorTick.bCanEverTick = false;
+	PrimaryActorTick.bCanEverTick = true;
 
 	FloorTileISMC = CreateDefaultSubobject<class UInstancedStaticMeshComponent>(TEXT("Floor InstancedStaticMesh"));
 	FloorTileISMC->SetMobility(EComponentMobility::Static);
 	FloorTileISMC->SetCollisionProfileName("BlockAll");
 
-	WallTileISMC = CreateDefaultSubobject<class UInstancedStaticMeshComponent>(TEXT("Wall InstancedStaticMesh"));
-	WallTileISMC->SetMobility(EComponentMobility::Static);
-	WallTileISMC->SetCollisionProfileName("BlockAll");
+	InnerWallTileISMC = CreateDefaultSubobject<class UInstancedStaticMeshComponent>(TEXT("Inner Wall InstancedStaticMesh"));
+	InnerWallTileISMC->SetMobility(EComponentMobility::Static);
+	InnerWallTileISMC->SetCollisionProfileName("BlockAll");
+
+	OuterWallTileISMC = CreateDefaultSubobject<class UInstancedStaticMeshComponent>(TEXT("Outer Wall InstancedStaticMesh"));
+	OuterWallTileISMC->SetMobility(EComponentMobility::Static);
+	OuterWallTileISMC->SetCollisionProfileName("BlockAll");
 
 }
 
@@ -30,13 +35,14 @@ void AMazeGenerator::GenerateMaze()
 	FDurationTimer DurationTimer = FDurationTimer(Time);
 	DurationTimer.Start();
 
-	RandomDepthFirstSearch randomDFS(MazeStartPosition, NrOfMazeColumns, NrOfMazeRows, MazeTileSize, MazeNodeArray, WallList);
+	if (MazeGenerationAlgorithm == EMazeAlgorithm::RANDOMDEPTHFIRSTSEARCH)
+		GenerateDFSMaze();
+	else if (MazeGenerationAlgorithm == EMazeAlgorithm::RANDOMKRUSKALS)
+		RandomKruskals randomKruskals(MazeStartPosition, NrOfMazeColumns, NrOfMazeRows, MazeTileSize, MazeNodeArray, WallList);
 
 	DurationTimer.Stop();
 	if (GEngine)
 		GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Blue, FString::SanitizeFloat(Time));
-
-	
 
 	////Debugging
 	if (DrawDebug)
@@ -44,6 +50,11 @@ void AMazeGenerator::GenerateMaze()
 
 	//Spawn meshes
 	SpawnMeshes();
+
+	//Create next maze
+	if (MazeGenerationAlgorithm == EMazeAlgorithm::RANDOMDEPTHFIRSTSEARCH)
+		GenerateDFSMazeAsync();
+	
 }
 
 // Called when the game starts or when spawned
@@ -53,83 +64,7 @@ void AMazeGenerator::BeginPlay()
 
 }
 
-void AMazeGenerator::ResetMazeNodes()
-{
-	for (auto& node : MazeNodeGrid)
-	{
-		node.Value.IsVisited = false;
-		for (auto& con : node.Value.Connections)
-		{
-			con->IsWall = true;
-		}
-	}
-}
-
-void AMazeGenerator::ResetVisitedMazeNodes()
-{
-	//set all nodes to unvisited //Create map of visited nodes.
-	for (auto& node : MazeNodeGrid)
-	{
-		node.Value.IsVisited = false;
-	}
-}
-
-
-bool AMazeGenerator::FindPathDepthFirstSearch(FMazeNode* currentNode, FMazeNode* endNode, TArray<FMazeNode*>& nodePath)
-{
-	//The node is marked visited
-	currentNode->IsVisited = true;
-
-	//Exit if node is end goal
-	if (currentNode->MazeNodeId == endNode->MazeNodeId) {
-		return true;
-	}
-
-
-	//Choose a unvisited node that is closest to the end goal
-	float closestUnvisitedNodeDistanceSqrd = FLT_MAX;
-	float currentDistanceSqrd = {};
-	int nodeIDx = -1;
-	for (auto& con : currentNode->Connections)
-	{
-		if (!con->IsWall)
-		{
-			if (auto unvistedNode = MazeNodeGrid.Find(con->ToNodeID)) {
-				if (!unvistedNode->IsVisited) {
-					currentDistanceSqrd = FVector::DistSquared(unvistedNode->NodePosition, endNode->NodePosition);
-					if (currentDistanceSqrd < closestUnvisitedNodeDistanceSqrd)
-						nodeIDx = unvistedNode->MazeNodeId;
-				}
-			}
-		}
-	}
-
-	//Go to next node
-	if (nodeIDx != -1)
-	{
-		if (auto unvistedNode = MazeNodeGrid.Find(nodeIDx)) {
-			//Add current node to node path for backtracking
-			nodePath.Add(currentNode);
-
-			//Go to unvisided node
-			FindPathDepthFirstSearch(unvistedNode, endNode, nodePath);
-		}
-
-	}
-	else
-	{
-		if (nodePath.Num() == 0)
-			return false;
-
-		//Go back if no unvisited nodes are adjacent
-		auto prevNode = nodePath.Pop();
-		FindPathDepthFirstSearch(prevNode, endNode, nodePath);
-	}
-
-	return nodePath.Num() > 0;
-}
-
-void AMazeGenerator::SpawnMeshes()
+void AMazeGenerator::SpawnMeshes(bool isSpawningFloors, bool isSpawningOuterWalls, bool IsSpawningInnerWalls)
 {
 	FTransform floorTransform{};
 	FTransform wallTransform{};
@@ -137,11 +72,14 @@ void AMazeGenerator::SpawnMeshes()
 	FVector wallDirection{};
 	FVector wallPos{ 0,0,0 };
 
-	SpawnOuterWalls(floorTransform, wallTransform, wallRotation, wallDirection, wallPos);
+	if(isSpawningOuterWalls)
+		SpawnOuterWalls(floorTransform, wallTransform, wallRotation, wallDirection, wallPos);
 
-	SpawnFloors(floorTransform);
+	if(isSpawningFloors)
+		SpawnFloors(floorTransform);
 
-	SpawnInnerWalls(floorTransform, wallTransform, wallRotation, wallDirection, wallPos);
+	if(IsSpawningInnerWalls)
+		SpawnInnerWalls(floorTransform, wallTransform, wallRotation, wallDirection, wallPos);
 }
 
 void AMazeGenerator::SpawnOuterWalls(FTransform& floorTransform, FTransform& wallTransform, FRotator& wallRotation, FVector& wallDirection, FVector& wallPos)
@@ -155,11 +93,11 @@ void AMazeGenerator::SpawnOuterWalls(FTransform& floorTransform, FTransform& wal
 		//Walls on the BOTTOM
 		wallPos.Y = MazeStartPosition.Y;
 		wallTransform.SetLocation(wallPos);
-		WallTileISMC->AddInstanceWorldSpace(wallTransform);
+		OuterWallTileISMC->AddInstanceWorldSpace(wallTransform);
 		//Walls on the TOP
 		wallPos.Y = MazeStartPosition.Y - NrOfMazeRows * MazeTileSize;
 		wallTransform.SetLocation(wallPos);
-		WallTileISMC->AddInstanceWorldSpace(wallTransform);
+		OuterWallTileISMC->AddInstanceWorldSpace(wallTransform);
 	}
 	//outer walls along Y-axis
 	wallRotation = UKismetMathLibrary::FindLookAtRotation({ 1,0,0 }, { 0,0,0 });
@@ -170,11 +108,11 @@ void AMazeGenerator::SpawnOuterWalls(FTransform& floorTransform, FTransform& wal
 		//Walls on the LEFT
 		wallPos.X = MazeStartPosition.X - MazeTileSize;
 		wallTransform.SetLocation(wallPos);
-		WallTileISMC->AddInstanceWorldSpace(wallTransform);
+		OuterWallTileISMC->AddInstanceWorldSpace(wallTransform);
 		//Walls on the Right
 		wallPos.X = MazeStartPosition.X + MazeTileSize * NrOfMazeColumns - MazeTileSize;
 		wallTransform.SetLocation(wallPos);
-		WallTileISMC->AddInstanceWorldSpace(wallTransform);
+		OuterWallTileISMC->AddInstanceWorldSpace(wallTransform);
 	}
 }
 
@@ -183,8 +121,8 @@ void AMazeGenerator::SpawnInnerWalls(FTransform& floorTransform, FTransform& wal
 	for (auto conn : WallList)
 	{
 		if (conn->IsWall) {
-			auto fromNode = conn->FromNode;
-			auto toNode = conn->ToNode;
+			auto fromNode = MazeNodeArray[conn->FromNodeID];
+			auto toNode = MazeNodeArray[conn->ToNodeID];
 			if (fromNode && toNode)
 			{
 				//Spawn wall
@@ -193,7 +131,7 @@ void AMazeGenerator::SpawnInnerWalls(FTransform& floorTransform, FTransform& wal
 				wallRotation = UKismetMathLibrary::FindLookAtRotation(wallDirection, { 0,0,0 });
 				wallTransform.SetRotation(wallRotation.Quaternion());
 				wallTransform.SetLocation(fromNode->NodePosition + wallDirection * (MazeTileSize / 2));
-				WallTileISMC->AddInstanceWorldSpace(wallTransform);
+				InnerWallTileISMC->AddInstanceWorldSpace(wallTransform);
 			}
 		}
 
@@ -218,9 +156,9 @@ void AMazeGenerator::DrawDebugMazeGrid()
 	floorExtent.Y = MazeTileSize / 2 - thickness;
 	floorExtent.Z = 20.f;
 	//Draw debug nodes
-	for (auto& node : MazeNodeGrid)
+	for (auto node : MazeNodeArray)
 	{
-		DrawDebugString(GetWorld(), node.Value.NodePosition, FString::FromInt(node.Value.MazeNodeId));
+		DrawDebugString(GetWorld(), node->NodePosition, FString::FromInt(node->MazeNodeId));
 		/*for (auto conn : node.Value.Connections)
 		{
 			if (conn.IsWall) {
@@ -241,34 +179,45 @@ void AMazeGenerator::DrawDebugMazeGrid()
 	}*/
 }
 
-bool AMazeGenerator::CheckIfMazeIsValid()
+void AMazeGenerator::GenerateDFSMazeAsync()
 {
-	//Check if maze is valid
-	ResetVisitedMazeNodes();
-	auto startNode = MazeNodeGrid.Find(0);
-	auto endNode = MazeNodeGrid.Find(MazeNodeGrid.Num() - 1);
-	bool isValid = FindPathDepthFirstSearch(startNode, endNode, MazeNodePath);
+	(new FAutoDeleteAsyncTask<RandomDepthFirstSearch>(MazeStartPosition, NrOfMazeColumns, NrOfMazeRows,
+		MazeTileSize, MazeNodeArray, WallList))->StartBackgroundTask();
+}
 
-	if (DrawDebug)
-	{
-		FString text{};
-		FColor color{};
-		if (isValid) {
-			MazeNodePath.Add(endNode);
-			text = "Finding path... End node is reachable, path nodes: " + FString::FromInt(MazeNodePath.Num());
-			color = FColor::Green;
-			isValid = true;
+void AMazeGenerator::GenerateDFSMaze()
+{
+	RandomDepthFirstSearch randomDFS(MazeStartPosition, NrOfMazeColumns, NrOfMazeRows,
+		MazeTileSize, MazeNodeArray, WallList);
+	randomDFS.DoWork();
+}
+
+void AMazeGenerator::GenerateKruskalsMazeAsync()
+{
+}
+
+void AMazeGenerator::UpdateChangeMaze(float delta)
+{
+	InnerWallTileISMC->ClearInstances();
+	SpawnMeshes(false, false, true);
+
+	ElapsedTimeUntilMazeChange += delta;
+	if (ElapsedTimeUntilMazeChange >= MazeChangeTimer) {
+		ElapsedTimeUntilMazeChange = 0;
+
+		switch (MazeGenerationAlgorithm)
+		{
+		case EMazeAlgorithm::RANDOMDEPTHFIRSTSEARCH:
+			GenerateDFSMazeAsync();
+			break;
+		case EMazeAlgorithm::RANDOMKRUSKALS:
+			break;
+		case EMazeAlgorithm::RANDOMPRISMS:
+			break;
+		default:
+			break;
 		}
-		else {
-			text = "Finding path... End node is NOT reachable, path nodes: 0";
-			color = FColor::Red;
-			isValid = false;
-		}
-		if (GEngine)
-			GEngine->AddOnScreenDebugMessage(-1, 5.f, color, text);
 	}
-
-	return isValid;
 }
 
 // Called every frame
@@ -276,5 +225,6 @@ void AMazeGenerator::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	UpdateChangeMaze(DeltaTime);
 }
 

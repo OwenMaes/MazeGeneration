@@ -9,11 +9,18 @@
  */
 struct FMazeNode;
 struct FMazeNodeConnection;
-class MAZEGENERATION_API RandomDepthFirstSearch
+class MAZEGENERATION_API RandomDepthFirstSearch: public FNonAbandonableTask
 {
 public:
 	RandomDepthFirstSearch(FVector mazeStartPosition, int nrOfMazeColumns, int nrOfMazeRows, float MazeTileSize, TArray<FMazeNode*>& arrayOfNodes, TArray<FMazeNodeConnection*>& arrayOfWalls);
 	~RandomDepthFirstSearch();
+
+	void DoWork();
+
+	FORCEINLINE TStatId GetStatId() const
+	{
+		RETURN_QUICK_DECLARE_CYCLE_STAT(RandomDepthFirstSearch, STATGROUP_ThreadPoolAsyncTasks)
+	}
 
 private:
 	void CreateMazeGrid(TArray<FMazeNodeConnection*>& arrayOfWalls);
@@ -26,4 +33,8 @@ private:
 	float MazeTileSize;
 	TMap<int, FMazeNode*> MazeNodeGrid;
 	TArray<FMazeNode*> MazeNodePath;
+
+	TArray<FMazeNodeConnection*>& ArrayOfWalls;
+	TArray<FMazeNode*>& ArrayOfNodes;
+
 };
