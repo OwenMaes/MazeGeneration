@@ -112,6 +112,14 @@ public:
 	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Maze settings")
 		float MazeChangeTimer = 5.f;
 
+	/*The wall erosion effect*/
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Maze FX")
+		class UNiagaraSystem* ErosionFX;
+
+	/*If the old walls will erode with fx.*/
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Maze FX")
+		bool ErodeOldWalls = true;
+
 	/*If debug is drawn.*/
 	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Maze settings")
 		bool DrawDebug = false;
@@ -120,6 +128,8 @@ public:
 		UInstancedStaticMeshComponent* FloorTileISMC;
 	UPROPERTY(VisibleAnywhere, Category = "Meshes")
 		UInstancedStaticMeshComponent* InnerWallTileISMC;
+	UPROPERTY(VisibleAnywhere, Category = "Meshes")
+		UInstancedStaticMeshComponent* InnerWallTileISMC2;
 	UPROPERTY(VisibleAnywhere, Category = "Meshes")
 		UInstancedStaticMeshComponent* OuterWallTileISMC;
 
@@ -132,6 +142,7 @@ private:
 	TArray<FMazeNodeConnection*> WallList = {};
 	TArray<FMazeNode*> MazeNodePath = {};
 	TArray<FMazeNode*> MazeNodeArray = {};
+	TArray<FMazeNodeConnection*> OldErosionWallList = {};
 	float ElapsedTimeUntilMazeChange = 0;
 
 	void SpawnMeshes(bool isSpawningFloors = true, bool isSpawningOuterWalls = true, bool IsSpawningInnerWalls = true);
@@ -144,6 +155,7 @@ private:
 	void GenerateDFSMaze();
 	void GenerateKruskalsMazeAsync();
 	void UpdateChangeMaze(float delta);
+
 public:
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;

@@ -7,6 +7,9 @@
 #include <Runtime\Core\Public\ProfilingDebugging\ABTesting.h>
 #include <Runtime\Engine\Public\DrawDebugHelpers.h>
 #include <Runtime\Engine\Classes\Kismet\KismetMathLibrary.h>
+#include <Niagara\Public\NiagaraFunctionLibrary.h>
+
+
 
 
 // Sets default values
@@ -23,10 +26,15 @@ AMazeGenerator::AMazeGenerator()
 	InnerWallTileISMC->SetMobility(EComponentMobility::Static);
 	InnerWallTileISMC->SetCollisionProfileName("BlockAll");
 
+	InnerWallTileISMC2 = CreateDefaultSubobject<class UInstancedStaticMeshComponent>(TEXT("Inner Wall 2 InstancedStaticMesh"));
+	InnerWallTileISMC2->SetMobility(EComponentMobility::Static);
+	InnerWallTileISMC2->SetCollisionProfileName("BlockAll");
+
 	OuterWallTileISMC = CreateDefaultSubobject<class UInstancedStaticMeshComponent>(TEXT("Outer Wall InstancedStaticMesh"));
 	OuterWallTileISMC->SetMobility(EComponentMobility::Static);
 	OuterWallTileISMC->SetCollisionProfileName("BlockAll");
 
+	ElapsedTimeUntilMazeChange = MazeChangeTimer;
 }
 
 void AMazeGenerator::GenerateMaze()
@@ -54,7 +62,7 @@ void AMazeGenerator::GenerateMaze()
 	//Create next maze
 	if (MazeGenerationAlgorithm == EMazeAlgorithm::RANDOMDEPTHFIRSTSEARCH)
 		GenerateDFSMazeAsync();
-	
+
 }
 
 // Called when the game starts or when spawned
@@ -72,13 +80,13 @@ void AMazeGenerator::SpawnMeshes(bool isSpawningFloors, bool isSpawningOuterWall
 	FVector wallDirection{};
 	FVector wallPos{ 0,0,0 };
 
-	if(isSpawningOuterWalls)
+	if (isSpawningOuterWalls)
 		SpawnOuterWalls(floorTransform, wallTransform, wallRotation, wallDirection, wallPos);
 
-	if(isSpawningFloors)
+	if (isSpawningFloors)
 		SpawnFloors(floorTransform);
 
-	if(IsSpawningInnerWalls)
+	if (IsSpawningInnerWalls)
 		SpawnInnerWalls(floorTransform, wallTransform, wallRotation, wallDirection, wallPos);
 }
 
@@ -198,11 +206,59 @@ void AMazeGenerator::GenerateKruskalsMazeAsync()
 
 void AMazeGenerator::UpdateChangeMaze(float delta)
 {
-	InnerWallTileISMC->ClearInstances();
-	SpawnMeshes(false, false, true);
-
 	ElapsedTimeUntilMazeChange += delta;
 	if (ElapsedTimeUntilMazeChange >= MazeChangeTimer) {
+		//Create new maze
+		InnerWallTileISMC->ClearInstances();
+		SpawnMeshes(false, false, true);
+
+		//Spawn erosion walls
+		if (ErodeOldWalls) {
+			FString text = FString::FromInt(OldErosionWallList.Num());
+			if (GEngine)
+				GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Blue, text);
+
+			//Remove walls that are still being used
+			for (size_t oldWallidx = 0; oldWallidx < OldErosionWallList.Num(); oldWallidx++)
+			{
+				if (OldErosionWallList[oldWallidx]->IsWall && !WallList[oldWallidx]->IsWall)
+					OldErosionWallList.RemoveAt(oldWallidx);
+			}
+
+			text = FString::FromInt(OldErosionWallList.Num());
+			if (GEngine)
+				GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red, text);
+
+
+			
+
+			//Spawn eroding walls fx
+			FRotator wallRotation{};
+			FVector wallDirection{};
+			FVector wallLocation{};
+			for (auto erosionWall: OldErosionWallList)
+			{
+				if (erosionWall->IsWall) {
+					auto fromNode = MazeNodeArray[erosionWall->FromNodeID];
+					auto toNode = MazeNodeArray[erosionWall->ToNodeID];
+					if (fromNode && toNode)
+					{
+						//Spawn wall			
+						wallDirection = (toNode->NodePosition - fromNode->NodePosition);
+						wallDirection.Normalize();
+						wallLocation = fromNode->NodePosition + wallDirection * (MazeTileSize / 2);
+						wallRotation = UKismetMathLibrary::FindLookAtRotation(wallDirection, { 0,0,0 });
+						UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(),
+							ErosionFX, wallLocation, wallRotation);
+					}
+				}
+			}
+
+			//Save wall list as old list
+			OldErosionWallList = WallList;
+		}
+
+
 		ElapsedTimeUntilMazeChange = 0;
 
 		switch (MazeGenerationAlgorithm)
@@ -218,6 +274,8 @@ void AMazeGenerator::UpdateChangeMaze(float delta)
 			break;
 		}
 	}
+
+
 }
 
 // Called every frame
